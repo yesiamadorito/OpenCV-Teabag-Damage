@@ -1,0 +1,108 @@
+import cv2  # opencv
+import numpy as np  # arithmetic calculations library
+
+
+def nothing(a):  # empty function
+    pass
+
+
+cv2.namedWindow("Parameters")  # trackbars for canny edge
+cv2.resizeWindow("Parameters", 640, 500)  # resize trackbar to 640x320
+cv2.createTrackbar("Threshold 1", "Parameters", 0, 255, nothing)  # threshold 1 range
+cv2.createTrackbar("Threshold 2", "Parameters", 255, 255, nothing)  # threshold 2 range
+cv2.createTrackbar("Hue Min", "Parameters", 0, 179, nothing)
+cv2.createTrackbar("Hue Max", "Parameters", 179, 179, nothing)
+cv2.createTrackbar("Sat Min", "Parameters", 0, 255, nothing)
+cv2.createTrackbar("Sat Max", "Parameters", 255, 255, nothing)
+cv2.createTrackbar("Val Min", "Parameters", 151, 255, nothing)
+cv2.createTrackbar("Val Max", "Parameters", 255, 255, nothing)
+cv2.createTrackbar("Area", "Parameters", 700, 50000, nothing) #minimum area
+
+
+def stackImages(scale, imgArray):  # function obtained through Murtaza's Workshop to stack images together
+    rows = len(imgArray)
+    cols = len(imgArray[0])
+    rowsAvailable = isinstance(imgArray[0], list)
+    width = imgArray[0][0].shape[1]
+    height = imgArray[0][0].shape[0]
+    if rowsAvailable:
+        for x in range(0, rows):
+            for y in range(0, cols):
+                if imgArray[x][y].shape[:2] == imgArray[0][0].shape[:2]:
+                    imgArray[x][y] = cv2.resize(imgArray[x][y], (0, 0), None, scale, scale)
+                else:
+                    imgArray[x][y] = cv2.resize(imgArray[x][y], (imgArray[0][0].shape[1], imgArray[0][0].shape[0]),
+                                                None, scale, scale)
+                if len(imgArray[x][y].shape) == 2: imgArray[x][y] = cv2.cvtColor(imgArray[x][y], cv2.COLOR_GRAY2BGR)
+        imageBlank = np.zeros((height, width, 3), np.uint8)
+        hor = [imageBlank] * rows
+        hor_con = [imageBlank] * rows
+        for x in range(0, rows):
+            hor[x] = np.hstack(imgArray[x])
+        ver = np.vstack(hor)
+    else:
+        for x in range(0, rows):
+            if imgArray[x].shape[:2] == imgArray[0].shape[:2]:
+                imgArray[x] = cv2.resize(imgArray[x], (0, 0), None, scale, scale)
+            else:
+                imgArray[x] = cv2.resize(imgArray[x], (imgArray[0].shape[1], imgArray[0].shape[0]), None, scale, scale)
+            if len(imgArray[x].shape) == 2: imgArray[x] = cv2.cvtColor(imgArray[x], cv2.COLOR_GRAY2BGR)
+        hor = np.hstack(imgArray)
+        ver = hor
+    return ver
+
+
+frameWidth = 640  # declare height, width of video frame
+frameHeight = 480
+cap = cv2.VideoCapture(0)  # allow webcam
+cap.set(3, frameWidth)
+cap.set(4, frameHeight)
+cap.set(10, 50)
+
+while True:
+    success, img = cap.read()
+    imghsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    finalimg = img.copy()
+    imgBlur = cv2.GaussianBlur(imghsv, (7, 7), 0)
+
+    h_min = cv2.getTrackbarPos("Hue Min", "Parameters")
+    h_max = cv2.getTrackbarPos("Hue Max", "Parameters")
+    s_min = cv2.getTrackbarPos("Sat Min", "Parameters")
+    s_max = cv2.getTrackbarPos("Sat Max", "Parameters")
+    v_min = cv2.getTrackbarPos("Val Min", "Parameters")
+    v_max = cv2.getTrackbarPos("Val Max", "Parameters")
+    # print(h_min, h_max, v_min, v_max, s_min, s_max)
+    lower = np.array([h_min, s_min, v_min])
+    upper = np.array([h_max, s_max, v_max])
+
+    # masking with hsv
+    mask = cv2.inRange(imgBlur, lower, upper)
+    # kernel = np.ones((3, 3), np.uint8)
+    # erode = cv2.erode(mask, kernel)
+    # contour detection
+    contours, heirarchy = cv2.findContours(mask, 1, 2)
+
+    for cnt in contours:
+
+        area = cv2.contourArea(cnt)
+        print(area)
+        if area > cv2.getTrackbarPos("Area", "Parameters"):
+            perimeter = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.01 * perimeter, True)
+            cv2.drawContours(finalimg, [approx], 0, (0, 255, 255), 5)
+            print(len(approx))
+            objCor = len(approx)
+            x, y, w, h = cv2.boundingRect(approx)
+            cv2.rectangle(finalimg, (x, y), (x + w, y + h), (200, 20, 255), 3)
+            if objCor == 4:
+                objType = "Teabag Approved"
+            else:
+                objType = "Damaged"
+
+            cv2.putText(finalimg, objType, (x + w // 2 - 20, y + h // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                       (0, 200, 200,), 2)
+
+    imgStack = stackImages(0.7, ([img, mask], [imgBlur, finalimg]))
+    cv2.imshow("Final Output", imgStack)
+    if cv2.waitKey(1) and 0xFF == ord('x'):
+        break
